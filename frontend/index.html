@@ -54,7 +54,7 @@
 
   <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
   <script>
-    const BACKEND = "http://localhost:3000";
+    const BACKEND = process.env.BACKEND_URL || "http://localhost:3000";
     const WS_PATH = "/ws";
 
     const backendUrlEl = document.getElementById("backendUrl");
