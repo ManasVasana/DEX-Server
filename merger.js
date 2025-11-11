@@ -96,17 +96,22 @@ function normalizeDexScreener(raw) {
     const quoteToken = pair?.quoteToken ?? {};
 
     const base_symbol =
-      baseToken?.symbol ?? pair?.baseSymbol ?? pair?.base_token_symbol ?? pair?.base ?? null;
+      baseToken?.symbol ??
+      pair?.baseSymbol ??
+      pair?.base_token_symbol ??
+      pair?.base ??
+      null;
     const quote_symbol =
-      quoteToken?.symbol ?? pair?.quoteSymbol ?? pair?.quote_token_symbol ?? pair?.quote ?? null;
+      quoteToken?.symbol ??
+      pair?.quoteSymbol ??
+      pair?.quote_token_symbol ??
+      pair?.quote ??
+      null;
 
-    const base_name =
-      baseToken?.name ?? pair?.baseName ?? null;
-    const quote_name =
-      quoteToken?.name ?? pair?.quoteName ?? null;
+    const base_name = baseToken?.name ?? pair?.baseName ?? null;
+    const quote_name = quoteToken?.name ?? pair?.quoteName ?? null;
 
-    const base_address =
-      baseToken?.address ?? pair?.baseTokenAddress ?? null;
+    const base_address = baseToken?.address ?? pair?.baseTokenAddress ?? null;
     const quote_address =
       quoteToken?.address ?? pair?.quoteTokenAddress ?? null;
 
@@ -121,20 +126,13 @@ function normalizeDexScreener(raw) {
       num(pair?.volume24h)
     );
 
-    const tx_buys_h24 = firstNN(
-      num(pair?.txns?.h24?.buys),
-      num(pair?.txns24h?.buys)
-    ) || 0;
-    const tx_sells_h24 = firstNN(
-      num(pair?.txns?.h24?.sells),
-      num(pair?.txns24h?.sells)
-    ) || 0;
+    const tx_buys_h24 =
+      firstNN(num(pair?.txns?.h24?.buys), num(pair?.txns24h?.buys)) || 0;
+    const tx_sells_h24 =
+      firstNN(num(pair?.txns?.h24?.sells), num(pair?.txns24h?.sells)) || 0;
     const txns_h24 = tx_buys_h24 + tx_sells_h24;
 
-    const price_usd_pool = firstNN(
-      num(pair?.priceUsd),
-      num(pair?.price?.usd)
-    );
+    const price_usd_pool = firstNN(num(pair?.priceUsd), num(pair?.price?.usd));
 
     const price_change_h1 = firstNN(
       num(pair?.priceChange?.h1),
@@ -149,11 +147,7 @@ function normalizeDexScreener(raw) {
       num(pair?.priceChange24h)
     );
 
-    const protocol =
-      pair?.dexId ??
-      pair?.platformId ??
-      pair?.protocol ??
-      null;
+    const protocol = pair?.dexId ?? pair?.platformId ?? pair?.protocol ?? null;
 
     out.push({
       source: "dexscreener",
@@ -180,19 +174,21 @@ function normalizeDexScreener(raw) {
 
 function choosePrimaryPool(pools) {
   // Sort by liquidity desc, then volume24h desc, then txns desc
-  return [...pools].sort((a, b) => {
-    const lA = num(a.liquidity_usd) ?? -1;
-    const lB = num(b.liquidity_usd) ?? -1;
-    if (lA !== lB) return lB - lA;
+  return (
+    [...pools].sort((a, b) => {
+      const lA = num(a.liquidity_usd) ?? -1;
+      const lB = num(b.liquidity_usd) ?? -1;
+      if (lA !== lB) return lB - lA;
 
-    const vA = num(a.volume_h24_usd) ?? -1;
-    const vB = num(b.volume_h24_usd) ?? -1;
-    if (vA !== vB) return vB - vA;
+      const vA = num(a.volume_h24_usd) ?? -1;
+      const vB = num(b.volume_h24_usd) ?? -1;
+      if (vA !== vB) return vB - vA;
 
-    const tA = num(a.txns_h24) ?? -1;
-    const tB = num(b.txns_h24) ?? -1;
-    return tB - tA;
-  })[0] ?? null;
+      const tA = num(a.txns_h24) ?? -1;
+      const tB = num(b.txns_h24) ?? -1;
+      return tB - tA;
+    })[0] ?? null
+  );
 }
 
 function mergePools(dexPools /* array */) {
@@ -222,11 +218,23 @@ function mergePools(dexPools /* array */) {
       num(p.txns_h24) ?? 0
     );
     // prefer a defined pool price
-    existing.price_usd_pool = firstNN(existing.price_usd_pool, p.price_usd_pool);
+    existing.price_usd_pool = firstNN(
+      existing.price_usd_pool,
+      p.price_usd_pool
+    );
     // prefer defined price changes
-    existing.price_change_h1 = firstNN(existing.price_change_h1, p.price_change_h1);
-    existing.price_change_h6 = firstNN(existing.price_change_h6, p.price_change_h6);
-    existing.price_change_h24 = firstNN(existing.price_change_h24, p.price_change_h24);
+    existing.price_change_h1 = firstNN(
+      existing.price_change_h1,
+      p.price_change_h1
+    );
+    existing.price_change_h6 = firstNN(
+      existing.price_change_h6,
+      p.price_change_h6
+    );
+    existing.price_change_h24 = firstNN(
+      existing.price_change_h24,
+      p.price_change_h24
+    );
     map.set(k, existing);
   }
   return Array.from(map.values());
@@ -241,8 +249,8 @@ function toSol(usd, solPriceUsd) {
 
 function buildToken(
   pools,
-  cg,                // CoinGecko summary or null
-  solPriceUsd        // number or null
+  cg, // CoinGecko summary or null
+  solPriceUsd // number or null
 ) {
   // Aggregate across all pools
   const total_volume_usd = sum(pools, (p) => p.volume_h24_usd);
@@ -263,13 +271,13 @@ function buildToken(
     liquidityWeighted(pools, "price_change_h1")
   );
 
-  // Market cap USD (prefer CG)
-  const market_cap_usd = num(cg?.market_cap_usd);
+  // Market cap USD:
+  // 1) prefer CoinGecko market cap if present
+  // 2) else fall back to total on-chain liquidity as a proxy (prevents nulls)
+  const market_cap_usd = firstNN(num(cg?.market_cap_usd), total_liquidity_usd);
 
   // Token identity: prefer CoinGecko; else infer from pools
-  const token_address =
-    cg?.contract_address ??
-    pickMostCommonAddress(pools);
+  const token_address = cg?.contract_address ?? pickMostCommonAddress(pools);
 
   const metaFromPools = pickTokenMetaForAddress(pools, token_address);
   const token_name = firstNN(cg?.name, metaFromPools.name, null);
@@ -295,8 +303,8 @@ function buildToken(
       token_ticker: token_ticker ?? null,
       price_sol: price_sol ?? null,
       market_cap_sol: market_cap_sol ?? null,
-      volume_sol: volume_sol ?? 0,          // sum across pools converted to SOL
-      liquidity_sol: liquidity_sol ?? 0,    // sum across pools converted to SOL
+      volume_sol: volume_sol ?? 0, // sum across pools converted to SOL
+      liquidity_sol: liquidity_sol ?? 0, // sum across pools converted to SOL
       transaction_count: transaction_count || 0, // sum of buys+sells (24h) across pools
       price_1hr_change: price_1hr_change ?? null,
       protocol,

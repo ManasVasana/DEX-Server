@@ -106,18 +106,50 @@ async function fetchCoinGecko(address, platform = "ethereum") {
   return { raw: data, summary };
 }
 
+// worker.js — robust SOL price fetch with Redis caching + fallback
 async function fetchSolPriceUsd() {
-  if (typeof solPriceUsd === "number") {
-    try {
-      await redis.setK("sol:usd", String(solPriceUsd), 300);
-    } catch (e) {}
+  // 1) Try cached value from Redis first
+  try {
+    const cached = await redis.getK("sol:usd");
+    const n = cached ? Number(cached) : null;
+    if (Number.isFinite(n) && n > 0) {
+      // Use cached value immediately (fast)
+      return n;
+    }
+  } catch (e) {
+    // ignore cache read failures
   }
 
-  const url = `https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd`;
-  const { data } = await axios.get(url, { timeout: COINGECKO_TIMEOUT });
-  const p = data?.solana?.usd ?? null;
-  return typeof p === "number" ? p : null;
+  // 2) Try live fetch from CoinGecko
+  try {
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd`;
+    const { data } = await axios.get(url, { timeout: COINGECKO_TIMEOUT });
+    const p = data?.solana?.usd ?? null;
+    if (typeof p === "number" && Number.isFinite(p) && p > 0) {
+      // cache the fresh price (non-blocking if cache fails)
+      try {
+        await redis.setK("sol:usd", String(p), 300); // cache for 5 minutes
+      } catch (e) {
+        /* ignore cache set failures */
+      }
+      return p;
+    }
+  } catch (err) {
+    console.warn("[worker] fetchSolPriceUsd: live fetch failed:", err?.message || err);
+  }
+
+  // 3) Final fallback: try cached value again before giving up
+  try {
+    const cached2 = await redis.getK("sol:usd");
+    const n2 = cached2 ? Number(cached2) : null;
+    if (Number.isFinite(n2) && n2 > 0) return n2;
+  } catch (e) {
+    // ignore
+  }
+
+  return null; // nothing available
 }
+
 
 // Detects changes
 function pctChange(oldV, newV) {
