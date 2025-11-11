@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Live Token Updates</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 18px; line-height: 1.35; }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .card { flex: 1 1 520px; border: 1px solid #ccc; border-radius: 8px; padding: 12px; background: #fafafa; }
+    .hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .status { font-weight: 600; }
+    .ok { color: #198754; }
+    .bad { color: #d63384; }
+    .warn { color: #ff8800; }
+    .btns { display: flex; gap: 8px; }
+    button { cursor: pointer; padding: 6px 10px; border-radius: 6px; border: 1px solid #888; background: #fff; }
+    pre { margin: 0; padding: 10px; height: 360px; overflow: auto; background: #f1f1f1; border-radius: 6px; }
+    small.mono { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <h2>WebSocket Live Token Updates</h2>
+
+  <div class="row">
+    <div class="card">
+      <div class="hdr">
+        <div>
+          <div>Backend: <span id="backendUrl" class="status"></span></div>
+          <div>WebSocket: <span id="wsStatus" class="status warn">Connecting…</span></div>
+          <div>Last update: <span id="lastUpdate">—</span></div>
+        </div>
+        <div class="btns">
+          <button id="btnRefetch">Refetch snapshot</button>
+          <button id="btnClear">Clear updates</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="card" style="flex:1 1 100%;">
+          <div class="hdr"><span>Snapshot (kept live via WS patches)</span></div>
+          <pre id="snapshot">Loading…</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="hdr">
+        <span>Live Updates (socket.io “delta”)</span>
+        <small class="mono">path: /ws • event: "delta"</small>
+      </div>
+      <pre id="updates"></pre>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+  <script>
+    const BACKEND = "http://localhost:3000";
+    const WS_PATH = "/ws";
+
+    const backendUrlEl = document.getElementById("backendUrl");
+    const wsStatusEl   = document.getElementById("wsStatus");
+    const lastUpdateEl = document.getElementById("lastUpdate");
+    const snapshotEl   = document.getElementById("snapshot");
+    const updatesEl    = document.getElementById("updates");
+    const btnRefetch   = document.getElementById("btnRefetch");
+    const btnClear     = document.getElementById("btnClear");
+
+    backendUrlEl.textContent = BACKEND;
+
+    function setWsStatus(txt, cls) {
+      wsStatusEl.textContent = txt;
+      wsStatusEl.className = "status " + (cls || "");
+    }
+    function stamp() {
+      const d = new Date();
+      const hh = String(d.getHours()).padStart(2,"0");
+      const mm = String(d.getMinutes()).padStart(2,"0");
+      const ss = String(d.getSeconds()).padStart(2,"0");
+      return `${hh}:${mm}:${ss}`;
+    }
+    function appendUpdate(obj) {
+      const line = `[${stamp()}] ${JSON.stringify(obj, null, 2)}\n`;
+      updatesEl.textContent += line + "\n";
+      updatesEl.scrollTop = updatesEl.scrollHeight;
+      lastUpdateEl.textContent = `${new Date().toLocaleString()} (WS)`;
+    }
+
+    let snapshotData = [];
+
+    function renderSnapshotPanel() {
+      snapshotEl.textContent = JSON.stringify(
+        { fetchedAt: new Date().toISOString(), tokens: snapshotData },
+        null, 2
+      );
+    }
+
+    function canonicalLabel(item) {
+      const t = item?.token || {};
+      const name = t.token_name || t.token_ticker || "Token";
+      const addr = t.token_address || t.contract_address || "";
+      return addr ? `${name} (${addr.slice(0,6)}…${addr.slice(-4)})` : name;
+    }
+
+    function extractNumbers(item) {
+      const token = item?.token || {};
+      const dbg   = token?._debug || {};
+      const price_usd      = (typeof token.price_usd === "number") ? token.price_usd : (typeof dbg.price_usd === "number" ? dbg.price_usd : null);
+      const market_cap_usd = (typeof token.market_cap_usd === "number") ? token.market_cap_usd : (typeof dbg.market_cap_usd === "number" ? dbg.market_cap_usd : null);
+      const volume_usd     = (typeof dbg.total_volume_usd === "number") ? dbg.total_volume_usd : (typeof token.volume_usd === "number" ? token.volume_usd : null);
+      const txns24         = (typeof token.transaction_count === "number") ? token.transaction_count : null;
+      return { price_usd, market_cap_usd, volume_usd, txns24 };
+    }
+
+    async function loadSnapshot() {
+      snapshotEl.textContent = "Loading…";
+      try {
+        const res = await fetch(`${BACKEND}/fetch-all`);
+        const data = await res.json();
+        const tokens = Array.isArray(data?.tokens) ? data.tokens
+                      : Array.isArray(data)        ? data
+                      : [];
+        snapshotData = tokens.map((it) => {
+          if (!it.label) it.label = canonicalLabel(it);
+          return it;
+        });
+        renderSnapshotPanel();
+        lastUpdateEl.textContent = `${new Date().toLocaleString()} (/fetch-all)`;
+      } catch (e) {
+        snapshotEl.textContent = `Error loading snapshot: ${e?.message || e}`;
+      }
+    }
+
+    function applyDeltaPatch(msg) {
+      if (!msg || !Array.isArray(msg.diffs)) return;
+
+      for (const d of msg.diffs) {
+        const label = d.label || d.address || "";
+        let idx = snapshotData.findIndex(it => (it.label || "") === label);
+        if (idx === -1) {
+          const minimal = { label, token: { _debug: {} } };
+          snapshotData.push(minimal);
+          idx = snapshotData.length - 1;
+        }
+
+        const item = snapshotData[idx];
+        item.token = item.token || {};
+        item.token._debug = item.token._debug || {};
+
+        if (d.next) {
+          if (d.next.price_usd != null)         item.token._debug.price_usd = d.next.price_usd;
+          if (d.next.market_cap_usd != null)    item.token._debug.market_cap_usd = d.next.market_cap_usd;
+          if (d.next.volume_usd != null)        item.token._debug.total_volume_usd = d.next.volume_usd;
+          if (d.next.txns24 != null)            item.token.transaction_count = d.next.txns24;
+        }
+      }
+
+      renderSnapshotPanel();
+      lastUpdateEl.textContent = `${new Date().toLocaleString()} (WS patch)`;
+    }
+
+    const socket = io(BACKEND, { path: WS_PATH, transports: ["websocket"] });
+
+    socket.on("connect", () => setWsStatus(`Connected (${socket.id})`, "ok"));
+    socket.on("disconnect", () => setWsStatus("Disconnected", "bad"));
+    socket.on("reconnect_attempt", () => setWsStatus("Reconnecting…", "warn"));
+    socket.on("connect_error", (err) => setWsStatus(`Error: ${err.message}`, "bad"));
+
+    socket.on("delta", (msg) => {
+      appendUpdate(msg);
+      if (Array.isArray(msg?.diffs) || msg?.type === "patch" || msg?.type === "delta") {
+        applyDeltaPatch(msg);
+      }
+    });
+
+    btnRefetch.addEventListener("click", loadSnapshot);
+    btnClear.addEventListener("click", () => { updatesEl.textContent = ""; });
+
+    loadSnapshot();
+  </script>
+</body>
+</html>
