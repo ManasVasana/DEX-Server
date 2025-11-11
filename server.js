@@ -6,6 +6,7 @@ const redis = require("./redis");
 const { mergeTokenLists } = require("./merger");
 const { withBackoff } = require("./ratelimit");
 const { createClient } = require("redis");
+require('./worker.js');
 
 const PORT = process.env.PORT || 3000;
 const COINGECKO_TIMEOUT = 8000;
