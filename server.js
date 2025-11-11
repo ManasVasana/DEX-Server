@@ -233,9 +233,8 @@ app.get("/fetch-all", async (req, res) => {
 const http = require("http").createServer(app);
 const { Server: IOServer } = require("socket.io");
 
-const io = new IOServer(http, {
-  path: "/ws",
-});
+const io = new IOServer(http, { path: "/ws", cors: { origin: "*", methods: ["GET","POST"] }});
+
 
 io.on("connection", (socket) => {
   console.log("[ws] client connected", socket.id);

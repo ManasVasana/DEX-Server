@@ -54,8 +54,13 @@
 
   <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
   <script>
-    const BACKEND = process.env.BACKEND_URL || "http://localhost:3000";
-    const WS_PATH = "/ws";
+  window.BACKEND_URL = "https://dex-server.onrender.com";
+</script>
+<script>
+  const BACKEND = window.BACKEND_URL || "http://localhost:3000";
+  const WS_PATH = "/ws";
+</script>
+
 
     const backendUrlEl = document.getElementById("backendUrl");
     const wsStatusEl   = document.getElementById("wsStatus");
