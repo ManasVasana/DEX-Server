@@ -1,3 +1,20 @@
+<h2>How to Run</h2>
+
+<h3>1. Install dependencies</h3>
+<pre><code>npm install
+</code></pre>
+
+<h3>2. Start the server</h3>
+<pre><code>node server.js
+</code></pre>
+
+<h3>3. Test the API</h3>
+<pre><code>curl "http://localhost:3000/fetch-all"
+</code></pre>
+</p>
+
+<hr style="border:0; border-top:1px solid #1a2430;" />
+
 <h2>Design Choices & Reasoning</h2>
 
 <h3>1. Multi-source aggregation</h3>
@@ -39,7 +56,15 @@ A token publishes an update only when:
   <li>Server subscribes and pushes updates to WebSocket clients.</li>
 </ul>
 
-<h3>6. Rate Limiting</h3>
+<h3>6. Background Worker</h3>
 <p>
-All external API calls use exponential backoff and retry on 429 responses.
+The backend includes a dedicated background worker (loaded automatically by <code>server.js</code>) that runs on a scheduled interval.
+It fetches fresh token data, merges and normalizes it, computes diffs against the previous snapshot, updates the Redis cache, and publishes
+only meaningful changes to the <code>token_updates</code> channel. This ensures real-time updates without requiring clients to repeatedly poll the API,
+and it also keeps the cache continuously refreshed and ready to serve fast responses whenever a new client calls the API.
+</p>
+
+<h3>7. Rate Limiting</h3>
+<p>
+All external API calls use exponential backoff and retry on 429 responses which makes the worker to never hit 429, even if it calls the api for every 15s.
 </p>
