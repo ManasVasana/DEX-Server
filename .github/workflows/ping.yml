@@ -1,0 +1,38 @@
+name: Keep Render Backend Alive
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   
+  workflow_dispatch:       
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping Render backend (with retries)
+        run: |
+          URL="https://dex-server.onrender.com/fetch-all/ping"
+          
+          echo "Pinging: $URL"
+          
+          retries=3
+          count=1
+          
+          while [ $count -le $retries ]
+          do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
+            echo "Attempt $count: HTTP $code"
+
+            if [ "$code" -eq 200 ]; then
+              echo "Backend is alive!"
+              exit 0
+            fi
+
+            echo "Retrying in 5 seconds..."
+            sleep 5
+            count=$((count + 1))
+          done
+
+          echo "Backend seems down after $retries attempts."
+          exit 1
