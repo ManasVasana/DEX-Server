@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Ping Render backend (with retries)
         run: |
-          URL="https://dex-server.onrender.com/fetch-all/ping"
+          URL="https://dex-server.onrender.com/fetch-all"
           
           echo "Pinging: $URL"
           
